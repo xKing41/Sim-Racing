@@ -19,6 +19,13 @@ export const SURFACES = {
 
 const GRID_CELL = 24; // m
 
+// Curbrillen: Laenge und Hoehe eines Zahns. Zusammen mit der Reifen-
+// einhuellung im Fahrwerk ergibt das ein spuerbares, aber nicht
+// zerstoererisches Rumpeln.
+const KERB_RIB_LENGTH = 1.1;
+const KERB_RIB_HEIGHT = 0.011;
+const ROUGH_HEIGHT = 0.022;
+
 export class Track {
   constructor(def) {
     this.def = def;
@@ -214,10 +221,26 @@ export class Track {
       }
     }
 
+    // Oberflaechenstruktur geht in die BODENHOEHE, nicht in einen separaten
+    // Stoerterm: nur so laufen Curbrillen und Bodenwellen durch Federn und
+    // Daempfer und setzen das Auto tatsaechlich in Bewegung.
     let rumble = props.rumble;
+    const sHere = p.s + along;
     if (surface === 'kerb') {
-      // Rillen im Curb
-      rumble = 0.6 + 0.4 * Math.abs(Math.sin(p.s * 1.6));
+      const rib = Math.sin((sHere * (Math.PI * 2)) / KERB_RIB_LENGTH);
+      height += KERB_RIB_HEIGHT * rib;
+      rumble = 0.55 + 0.45 * Math.abs(rib);
+    } else if (surface !== 'asphalt') {
+      // Gras und Kies sind uneben, aber nicht regelmaessig
+      const bump =
+        Math.sin(x * 0.7 + z * 0.31) * 0.6 +
+        Math.sin(x * 1.9 - z * 1.3) * 0.3 +
+        Math.sin(z * 3.1 + x * 0.17) * 0.1;
+      height += ROUGH_HEIGHT * bump;
+      rumble = props.rumble + 0.35 * Math.abs(bump);
+    } else {
+      // Auch Asphalt ist nicht spiegelglatt
+      height += 0.004 * Math.sin(sHere * 0.9 + lateral * 0.4);
     }
 
     return {

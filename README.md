@@ -71,11 +71,45 @@ wirkt - damit laesst sich auch mit dem Daumen dosieren.
 im Menue "Lenkrad kalibrieren" antippen und nacheinander Lenkrad, Gas und
 Bremse bewegen; die Achse mit dem groessten Ausschlag wird uebernommen.
 
-## Fahrhilfen
+## Fahrstufen
 
-Alle einzeln abschaltbar. ABS, Traktionskontrolle und Automatikgetriebe sind
-anfangs an, das Stabilitaetsprogramm ist aus. Wer es schwerer mag, schaltet
-Traktionskontrolle und Lenkhilfe ab und stellt auf Handschaltung.
+| Stufe | ABS | Traktionskontrolle | Stabilitaetsprogramm | Getriebe | Lenkhilfe |
+| --- | --- | --- | --- | --- | --- |
+| GT3 realistisch | an | an | aus | Hand | aus |
+| Profi | aus | aus | aus | Hand | aus |
+| Einsteiger | an | an | an | Automatik | an |
+
+Vorgabe ist **GT3 realistisch**, und zwar nicht als Kompromiss: echte
+GT3-Fahrzeuge haben ABS und Traktionskontrolle, kein Stabilitaetsprogramm,
+und geschaltet wird am Wippenschalter. Die Lenkhilfe ist keine Regelung im
+Auto, sondern nur eine Eingabehilfe fuer Tastatur und Touch - sie
+verkleinert dort den nutzbaren Lenkbereich bei hohem Tempo. Am Lenkrad
+braucht man sie nicht.
+
+## Abstimmung
+
+Vierzehn Einstellgroessen, alle mit gemessener Wirkung am Grenzbereich:
+
+| Gruppe | Einstellung |
+| --- | --- |
+| Bremsen | Bremsbalance, Bremskraft |
+| Fahrwerk | Stabilisator vorne/hinten, Federrate vorne/hinten, Daempfung vorne/hinten |
+| Aerodynamik | Heckfluegel, Frontabtrieb |
+| Antrieb | Sperrwert Zug, Sperrwert Schub, Achsuebersetzung |
+| Rennen | Tankinhalt |
+
+Gemessene Beispiele (`npm run setup`):
+
+- Stabilisatoren 80/8 auf 8/70 kN/m: von deutlich untersteuernd auf
+  neutral, und die Querbeschleunigung steigt dabei von 1,54 auf 1,61 g -
+  ein ausbalanciertes Auto ist schneller.
+- Heckfluegel Stufe 1 auf 12 bei 230 km/h: 1,65 auf 1,86 g, dafuer rund
+  15 km/h weniger Hoechstgeschwindigkeit.
+- Frontabtrieb 34 auf 52 %: verschiebt die Balance bei hohem Tempo sichtbar
+  von Unter- Richtung Uebersteuern.
+
+Eine geaenderte Abstimmung baut das Auto neu auf und stellt es zurueck an
+die Box - wie am Rennwochenende wird nicht waehrend der Fahrt geschraubt.
 
 ## Strecke
 
@@ -92,23 +126,45 @@ gestrichen.
 Die Physik rechnet mit fester Schrittweite (240 Hz, auf schwacher Hardware
 automatisch groeber) und ist unabhaengig von der Bildrate.
 
-- **Reifen**: vereinfachte Pacejka-Formel, auf das Kraftmaximum normiert.
-  Laengs- und Querkraft teilen sich denselben Reibkreis, wer also am Limit
-  lenkt, hat weniger Grip zum Beschleunigen. Der Reibbeiwert sinkt mit
-  steigender Radlast - deshalb veraendert Gewichtsverlagerung die Balance.
-- **Vier Raeder einzeln**: jedes mit eigener Radlast, eigenem Schlupf und
-  eigener Drehzahl. Gewichtsverlagerung baut sich mit einer Zeitkonstante
-  auf, nicht sofort; daraus entstehen Lastwechselreaktionen.
-- **Aerodynamik**: Abtrieb und Luftwiderstand steigen quadratisch mit dem
-  Tempo. In schnellen Kurven klebt das Auto deutlich besser als in langsamen.
-- **Antriebsstrang**: Drehmomentkurve, sequenzielles Sechsganggetriebe,
-  Sperrdifferential und eine schlupfgeregelte Anfahrkupplung.
-- **Fahrwerk**: gefederter, gedaempfter Aufbau mit Federweg. Ueber Kuppen
-  wird das Auto leicht, bei genug Tempo hebt es ab.
+**Reifen.** Vereinfachte Pacejka-Formel, auf das Kraftmaximum normiert.
+Laengs- und Querkraft teilen sich denselben Reibkreis: wer am Limit lenkt,
+hat weniger Grip zum Beschleunigen. Der Reibbeiwert sinkt mit steigender
+Radlast - deshalb veraendert Gewichtsverlagerung die Balance.
 
-Gemessene Eckwerte: 0-100 km/h in 4,2 s, 0-200 in 10,9 s, Hoechst-
-geschwindigkeit 270 km/h, Bremsweg 100-0 rund 24 m, Querbeschleunigung
-1,3 bis 1,7 g je nach Tempo.
+**Reifentemperatur und Verschleiss.** Jeder Reifen hat seinen eigenen
+Waermehaushalt aus Reibleistung im Latsch und Walkarbeit und kuehlt am
+Fahrtwind ab. Grip gibt es nur in einem Fenster um die Betriebstemperatur.
+Gemessen, Bremsweg 100-0 km/h: bei 22 Grad 33,5 m, bei 80 Grad 24,1 m, bei
+130 Grad 31,6 m. Ohne Heizdecken ist die erste Runde eine Aufwaermrunde.
+
+**Fahrwerk.** An jeder Ecke traegt eine Feder mit Daempfer den Aufbau. Der
+hat drei Freiheitsgrade - Hub, Nicken, Waelzen - und eigene Traegheiten,
+und die Radlasten sind schlicht das, was die Federn gerade tragen.
+Gewichtsverlagerung, Nicken beim Bremsen, Lastwechselreaktion,
+Curbschlaege und abhebende Raeder ergeben sich daraus von selbst, mit den
+Zeitkonstanten aus Federrate und Daempfung statt aus einer gewaehlten Zahl.
+Der ueber Rollzentren und Anti-Dive-Geometrie laufende Anteil wirkt ohne
+Verzoegerung. Nachgerechnet trifft die Lastverlagerung die Momentenbilanz
+auf 0,2 Prozent.
+
+**Lenkgefuehl.** Der Nachlauf der Aufstandsflaeche faellt zusammen, sobald
+der Reifen ins Gleiten geht. Das Rueckstellmoment erreicht sein Maximum bei
+rund 4 Grad Schraeglauf, die Querkraft erst bei 8 Grad - das Lenkrad wird
+also leicht, BEVOR die Vorderachse wegrutscht. Die Anzeige Lenkkraft im HUD
+zeigt genau dieses Signal.
+
+**Aerodynamik.** Abtrieb und Luftwiderstand steigen quadratisch mit dem
+Tempo. Der Abtrieb greift am Aufbau an und drueckt ihn auf die Federn, das
+Auto liegt bei hohem Tempo also tiefer.
+
+**Antriebsstrang.** Drehmomentkurve, sequenzielles Sechsganggetriebe,
+Sperrdifferential mit getrennten Werten fuer Zug und Schub, schlupfgeregelte
+Anfahrkupplung. Sprit wird aus der geleisteten Arbeit verbraucht (rund
+0,29 kg/km), das Auto wird dabei leichter.
+
+Gemessene Eckwerte mit warmen Reifen: 0-100 km/h in 4,2 s, 0-200 in 10,9 s,
+Hoechstgeschwindigkeit 271 km/h, Bremsweg 100-0 rund 24 m,
+Querbeschleunigung 1,45 g bei 80 km/h steigend auf 1,81 g bei 200 km/h.
 
 ## Werkzeuge
 
@@ -116,6 +172,7 @@ geschwindigkeit 270 km/h, Bremsweg 100-0 rund 24 m, Querbeschleunigung
 npm test          # Autopilot faehrt drei Runden und prueft die Zeitnahme
 npm run strecke   # Streckenlayout pruefen und als PNG zeichnen
 npm run build     # alles in die Einzeldatei sim-racing.html buendeln
+npm run setup     # misst die Wirkung der Abstimmung am Grenzbereich
 ```
 
 Der Autopilot ist der Regressionstest: er faehrt die Strecke ohne Grafik ab
@@ -126,7 +183,8 @@ Strecke war.
 
 ```
 index.html            Einstiegspunkt mit Importmap
-src/physics/          tyre.js, drivetrain.js, vehicle.js
+src/physics/          tyre.js, suspension.js, drivetrain.js, vehicle.js,
+                      setup.js
 src/track/            geometry.js, trackData.js, track.js, timing.js
 src/render/           scene.js, cameras.js, trackMesh.js, scenery.js,
                       carModel.js, textures.js, effects.js
@@ -136,7 +194,7 @@ src/audio/            engineAudio.js (synthetisiert, keine Audiodateien)
 src/main.js           Spielschleife
 vendor/three/         three.js r186, mitgeliefert
 tools/                serve.mjs, autopilot.mjs, preview-track.mjs,
-                      png.mjs, build-single.mjs
+                      png.mjs, build-single.mjs, setup-test.mjs
 sim-racing.html       eigenstaendige Fassung, erzeugt mit npm run build
 ```
 

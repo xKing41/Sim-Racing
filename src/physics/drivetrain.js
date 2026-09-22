@@ -43,6 +43,9 @@ export const GT3_SETUP = {
   efficiency: 0.92,
   shiftTime: 0.09, // s Zugkraftunterbrechung
   reverseLimit: 9, // m/s, Abregelung im Rueckwaertsgang (~32 km/h)
+  // Spezifischer Verbrauch in kg je Joule Arbeit an der Kurbelwelle.
+  // Rund 235 g/kWh - typisch fuer einen aufgeladenen Rennmotor im Bestpunkt.
+  bsfc: 6.5e-8,
 
   clutchMaxTorque: 780, // Nm
   launchTargetSlip: 0.13, // Zielschlupf beim Anfahren
@@ -84,6 +87,7 @@ export class Drivetrain {
     this.outTorqueLeft = 0;
     this.outTorqueRight = 0;
     this.clutchTorque = 0;
+    this.fuelRate = 0; // kg/s
     this.mode = 'slipping';
     this.launchEngage = 0.04;
     this.reflectedInertia = 0;
@@ -291,6 +295,12 @@ export class Drivetrain {
     this.outTorqueRight = axleTorque * 0.5 + tLock;
     this.reflectedInertia = reflectedInertia;
     this.drivelineDamping = drivelineDamping;
+
+    // --- Spritverbrauch ----------------------------------------------------
+    // Aus der tatsaechlich geleisteten Arbeit, nicht aus der Zeit: Vollgas
+    // im sechsten Gang kostet mehr als Vollgas im ersten.
+    const shaftPower = Math.max(0, this.clutchTorque * this.omegaEngine);
+    this.fuelRate = shaftPower * s.bsfc;
 
     // --- Automatikgetriebe ------------------------------------------------
     if (this.autoGearbox) this._autoShift(throttle, speed, now);

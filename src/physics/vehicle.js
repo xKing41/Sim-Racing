@@ -18,6 +18,7 @@
 
 import { Tyre, TYRE_COMPOUNDS } from './tyre.js';
 import { Drivetrain, GT3_SETUP, GT3_TORQUE_CURVE } from './drivetrain.js';
+import { Suspension, GT3_SUSPENSION } from './suspension.js';
 
 const G = 9.81;
 const AIR_DENSITY = 1.225;
@@ -49,25 +50,49 @@ export const GT3_CHASSIS = {
   liftArea: 3.6, // Cl * A (Abtrieb)
   aeroBalance: 0.42, // Anteil des Abtriebs vorne
 
-  rollStiffnessFront: 0.54, // Anteil der Querlastverlagerung vorne -> Balance
-  rollTau: 0.11, // s, Aufbau der Waelzbewegung
-  pitchTau: 0.085, // s, Aufbau der Nickbewegung
-
   rollingResistance: 0.014,
 
-  // Fahrwerk (Vertikaldynamik des Aufbaus)
-  suspensionTravel: 0.13, // m, danach heben die Raeder ab
-  suspensionRate: 340, // 1/s^2, entspricht rund 2.9 Hz Aufbaueigenfrequenz
-  suspensionDamping: 0.92, // Anteil der kritischen Daempfung
-  suspensionBump: 0.07, // m, maximaler Einfederweg bis zum Anschlag
+  // Lenkung: Uebersetzung vom Lenkrad zum Rad und der Anteil, der beim
+  // Fahrer ankommt. Ueber beides bekommt man das Rueckstellmoment.
+  // Lenkuebersetzung: 8.6:1 ergibt bei 0.5 rad Radeinschlag rund 500 Grad
+  // Lenkradbewegung von Anschlag zu Anschlag - typisch fuer ein GT-Auto.
+  steeringRatio: 8.6,
+  powerSteering: 0.45,
 };
 
+/**
+ * Fahrhilfen.
+ *
+ * Die Vorgabe bildet ab, was ein echtes GT3-Auto hat: ABS und Traktions-
+ * kontrolle sind dort erlaubt und serienmaessig, ein Stabilitaetsprogramm
+ * nicht, und geschaltet wird von Hand am Wippenschalter. Gelenkt wird ohne
+ * jede Hilfe.
+ */
 export const ASSIST_DEFAULTS = {
   abs: true,
   tractionControl: true,
   stabilityControl: false,
-  steerAssist: true, // begrenzt den Lenkeinschlag bei hohem Tempo
-  autoGearbox: true,
+  steerAssist: false,
+  autoGearbox: false,
+};
+
+/** Vorgefertigte Stufen fuer das Menue. */
+export const ASSIST_PRESETS = {
+  gt3: {
+    name: 'GT3 realistisch',
+    hint: 'Wie das echte Auto: ABS und Traktionskontrolle an, von Hand geschaltet',
+    assists: { abs: true, tractionControl: true, stabilityControl: false, steerAssist: false, autoGearbox: false },
+  },
+  profi: {
+    name: 'Profi',
+    hint: 'Alles aus. Nur Reifen, Fahrwerk und du',
+    assists: { abs: false, tractionControl: false, stabilityControl: false, steerAssist: false, autoGearbox: false },
+  },
+  einsteiger: {
+    name: 'Einsteiger',
+    hint: 'Alle Hilfen an, Automatikgetriebe, Lenkhilfe fuer Tastatur und Touch',
+    assists: { abs: true, tractionControl: true, stabilityControl: true, steerAssist: true, autoGearbox: true },
+  },
 };
 
 const WHEEL_NAMES = ['FL', 'FR', 'RL', 'RR'];
@@ -88,6 +113,8 @@ class Wheel {
     this.load = 0; // N
     this.fx = 0;
     this.fy = 0;
+    this.mz = 0;
+    this.contact = 1;
     this.slipRatio = 0;
     this.slipAngle = 0;
     this.slipLoad = 0; // >1 = jenseits des Kraftmaximums
@@ -123,11 +150,17 @@ export class Vehicle {
       new Wheel('RR', c.trackRear / 2, -b, c.wheelRadiusRear, c.wheelInertiaRear, false, true, new Tyre(compound, staticRear)),
     ];
 
+    // Fahrwerk: traegt den Aufbau und liefert die Radlasten
+    this.suspension = new Suspension(
+      c,
+      this.wheels.map((w) => ({ lx: w.lx, lz: w.lz, isFront: w.isFront })),
+      { ...GT3_SUSPENSION, ...(options.suspension || {}) }
+    );
+
     this.drivetrain = new Drivetrain(
       { ...GT3_SETUP, wheelRadius: c.wheelRadiusRear, ...(options.drivetrain || {}) },
       options.torqueCurve || GT3_TORQUE_CURVE
     );
-    this.drivetrain.autoGearbox = this.assists.autoGearbox;
 
     // Zustand
     this.position = { x: 0, y: 0, z: 0 };
@@ -138,8 +171,11 @@ export class Vehicle {
 
     this.accelLong = 0;
     this.accelLat = 0;
-    this.dFzLong = 0;
-    this.dFzLat = 0;
+    // Reifenkraefte des vorigen Schrittes - das Fahrwerk braucht sie, bevor
+    // die neuen feststehen.
+    this.tyreFx = 0;
+    this.tyreFy = 0;
+    this.tyreFyFront = 0;
 
     this.rollAngle = 0;
     this.pitchAngle = 0;
@@ -155,12 +191,16 @@ export class Vehicle {
     this.tcActive = false;
     this.tcCut = 0;
     this.escActive = false;
+    this.steeringTorque = 0;
+    this.steeringWheelAngle = 0;
 
     this.time = 0;
+    // Tank: Sprit ist Gewicht, und das Auto wird ueber einen Stint leichter
+    this.fuelCapacity = options.fuel ?? 60;
+    this.fuel = this.fuelCapacity;
+    this.dryMass = c.mass - this.fuelCapacity;
     this.onGround = true;
-    this.contact = 1;
     this.airborne = 0;
-    this.verticalSpeed = 0;
 
     /** @type {null | ((x:number,z:number)=>{grip:number,height:number,rumble:number,surface:string})} */
     this.surfaceQuery = null;
@@ -184,8 +224,12 @@ export class Vehicle {
     return { x: -Math.cos(this.yaw), z: Math.sin(this.yaw) };
   }
 
-  /** Setzt das Auto an eine Position und richtet es aus. */
-  placeAt(x, z, yaw, speed = 0, y = 0) {
+  /**
+   * Setzt das Auto an eine Position und richtet es aus.
+   * @param {number|null} tyreTemp Reifentemperatur in Grad. null = Umgebung
+   *   (kalt, wie nach dem Abstellen). Mit Heizdecken startet man warm.
+   */
+  placeAt(x, z, yaw, speed = 0, y = 0, tyreTemp = 80) {
     this.position.x = x;
     this.position.z = z;
     this.position.y = y;
@@ -195,20 +239,24 @@ export class Vehicle {
     this.r = 0;
     this.accelLong = 0;
     this.accelLat = 0;
-    this.dFzLong = 0;
-    this.dFzLat = 0;
+    this.tyreFx = 0;
+    this.tyreFy = 0;
+    this.tyreFyFront = 0;
     this.rollAngle = 0;
     this.pitchAngle = 0;
-    this.verticalSpeed = 0;
-    this.contact = 1;
     this.onGround = true;
+    this.suspension.reset(y);
     this.drivetrain.reset();
-    if (speed > 0.5) this.drivetrain.gearIndex = 3;
+    // Im Stand liegt der erste Gang an - im Rennauto sitzt man nicht im
+    // Leerlauf an der Startaufstellung.
+    this.drivetrain.gearIndex = speed > 0.5 ? 3 : 2;
     for (const wheel of this.wheels) {
       wheel.omega = speed / wheel.radius;
       wheel.fx = 0;
       wheel.fy = 0;
+      wheel.mz = 0;
       wheel.slipLoad = 0;
+      wheel.tyre.resetThermal(tyreTemp);
     }
   }
 
@@ -221,6 +269,16 @@ export class Vehicle {
     const c = this.c;
     this.time += dt;
 
+    // ---- Sprit und Masse ---------------------------------------------------
+    if (this.fuel > 0) {
+      this.fuel = Math.max(0, this.fuel - this.drivetrain.fuelRate * dt);
+      const mass = this.dryMass + this.fuel;
+      if (Math.abs(mass - c.mass) > 0.25) {
+        c.mass = mass;
+        this.suspension.setMass(mass);
+      }
+    }
+
     // ---- Schalten ----------------------------------------------------------
     if (input.shiftUp) this.drivetrain.shiftUp(this.time);
     if (input.shiftDown) this.drivetrain.shiftDown(this.time);
@@ -230,13 +288,17 @@ export class Vehicle {
     this.steerInput = Math.max(-1, Math.min(1, input.steer));
     let maxSteer = c.maxSteerAngle;
     if (this.assists.steerAssist) {
-      // Bei Tempo den maximalen Einschlag begrenzen: verhindert, dass man sich
-      // mit Tastatur oder Touch bei 250 km/h sofort abschiesst.
+      // Nur eine Eingabehilfe fuer Tastatur und Touch: dort gibt es kein
+      // dosierbares Lenkrad, deshalb wird der nutzbare Bereich mit dem Tempo
+      // kleiner. Der Lenkeinschlag selbst bleibt linear zur Eingabe - ein
+      // Simulator darf dem Fahrer nicht heimlich ins Lenkrad greifen.
       const v = this.speed;
       const f = 1 / (1 + c.steerSpeedFalloff * (v / 30) * (v / 30));
       maxSteer *= Math.max(0.22, f);
     }
     this.steerAngle = this.steerInput * maxSteer;
+    // Lenkradwinkel fuer die Anzeige im Cockpit
+    this.steeringWheelAngle = this.steerAngle * c.steeringRatio;
 
     const uSafe = Math.max(Math.abs(this.u), 0.5);
 
@@ -271,10 +333,6 @@ export class Vehicle {
     this.terrainPitch = Math.atan2(frontH - rearH, c.wheelbase);
     this.terrainRoll = Math.atan2(rightH - leftH, (c.trackFront + c.trackRear) / 2);
 
-    // ---- Vertikaldynamik / Spruenge ---------------------------------------
-    this._integrateVertical(dt, groundHeight);
-    const contact = this.contact;
-
     // ---- Aerodynamik -------------------------------------------------------
     const vSq = this.u * this.u;
     const drag = 0.5 * AIR_DENSITY * c.dragArea * vSq * Math.sign(this.u || 1);
@@ -282,31 +340,24 @@ export class Vehicle {
     const downFront = downforce * c.aeroBalance;
     const downRear = downforce * (1 - c.aeroBalance);
 
-    // ---- Radlasten ---------------------------------------------------------
-    const weight = c.mass * G * Math.cos(this.terrainPitch);
-    const staticFrontTotal = weight * c.frontWeightBias;
-    const staticRearTotal = weight * (1 - c.frontWeightBias);
-
-    // Lastverlagerung mit Zeitkonstante: das Auto braucht einen Moment, bis es
-    // sich auf die Federn legt. Genau daraus entsteht Lastwechselreaktion.
-    const targetLong = (c.mass * this.accelLong * c.cgHeight) / c.wheelbase;
-    const avgTrack = (c.trackFront + c.trackRear) / 2;
-    const targetLat = (c.mass * this.accelLat * c.cgHeight) / avgTrack;
-    this.dFzLong += (targetLong - this.dFzLong) * (1 - Math.exp(-dt / c.pitchTau));
-    this.dFzLat += (targetLat - this.dFzLat) * (1 - Math.exp(-dt / c.rollTau));
-
-    const frontTotal = staticFrontTotal + downFront - this.dFzLong;
-    const rearTotal = staticRearTotal + downRear + this.dFzLong;
-    const latFront = this.dFzLat * c.rollStiffnessFront;
-    const latRear = this.dFzLat * (1 - c.rollStiffnessFront);
-
-    // Querbeschleunigung nach rechts entlastet die rechten Raeder.
-    const loads = [
-      frontTotal / 2 + latFront, // FL
-      frontTotal / 2 - latFront, // FR
-      rearTotal / 2 + latRear, // RL
-      rearTotal / 2 - latRear, // RR
-    ];
+    // ---- Fahrwerk: Radlasten aus Federn, Daempfern und Stabilisatoren ------
+    const loads = this.suspension.update(
+      dt,
+      [
+        this.wheels[0].groundHeight,
+        this.wheels[1].groundHeight,
+        this.wheels[2].groundHeight,
+        this.wheels[3].groundHeight,
+      ],
+      this.tyreFx,
+      this.tyreFy,
+      this.tyreFyFront,
+      downFront,
+      downRear
+    );
+    this.position.y = this.suspension.bodyHeight;
+    this.onGround = !this.suspension.airborne;
+    this.airborne = this.suspension.airborne ? this.airborne + dt : 0;
 
     // ---- Lenkwinkel je Rad (Ackermann) ------------------------------------
     this._applySteering();
@@ -344,17 +395,17 @@ export class Vehicle {
     let Ffwd = 0;
     let Fright = 0;
     let Mz = 0;
+    let fyFront = 0; // Querkraftanteil der Vorderachse, fuers Fahrwerk
+    let alignTorque = 0; // Rueckstellmoment der gelenkten Raeder
     this.absActive = false;
 
     for (let i = 0; i < 4; i++) {
       const wheel = this.wheels[i];
-      wheel.load = Math.max(0, loads[i]) * contact;
-
-      // Curbs/Bodenwellen schuetteln die Radlast durch
-      if (wheel.rumble > 0 && this.speed > 3) {
-        const f = Math.sin(this.time * 78 + i * 1.7) * wheel.rumble;
-        wheel.load *= 1 + f * 0.35;
-      }
+      // Die Radlast kommt aus dem Fahrwerk. Curbs und Bodenwellen wirken
+      // ueber die Bodenhoehe auf die Federn, nicht mehr ueber einen
+      // aufgesetzten Stoerterm.
+      wheel.load = loads[i];
+      wheel.contact = this.suspension.contact[i];
 
       // Radgeschwindigkeit im Fahrzeugsystem
       const vFwd = this.u - this.r * wheel.lx;
@@ -376,7 +427,19 @@ export class Vehicle {
       const res = wheel.tyre.forces(slipRatio, slipAngle, wheel.load, wheel.surfaceGrip);
       wheel.fx = res.fx;
       wheel.fy = res.fy;
+      wheel.mz = res.mz;
       wheel.slipLoad = res.slip;
+
+      // Waermehaushalt: Reibleistung ist Kraft mal Gleitgeschwindigkeit
+      wheel.tyre.updateThermal(
+        dt,
+        res.fx,
+        res.fy,
+        wheel.omega * wheel.radius - vLong,
+        vLat,
+        this.speed
+      );
+      if (wheel.isFront) alignTorque += res.mz;
 
       // Rollwiderstand
       const roll = -Math.sign(vLong) * c.rollingResistance * wheel.load;
@@ -441,8 +504,16 @@ export class Vehicle {
 
       Ffwd += fFwd;
       Fright += fRight;
-      Mz += wheel.lz * fRight - wheel.lx * fFwd;
+      if (wheel.isFront) fyFront += fRight;
+      // Neben dem Hebelmoment wirkt auch das Rueckstellmoment des Reifens
+      // selbst auf die Gierbewegung.
+      Mz += wheel.lz * fRight - wheel.lx * fFwd + wheel.mz;
     }
+
+    // ---- Lenkkraft am Lenkrad ----------------------------------------------
+    // Was der Fahrer spuert: das Rueckstellmoment beider Vorderraeder,
+    // geteilt durch die Lenkuebersetzung, abzueglich Servounterstuetzung.
+    this.steeringTorque = (alignTorque / c.steeringRatio) * c.powerSteering;
 
     // ---- Luftwiderstand, Hangabtrieb ---------------------------------------
     Ffwd -= drag;
@@ -488,55 +559,17 @@ export class Vehicle {
     this.position.x += (f2.x * this.u + r2.x * this.w) * dt;
     this.position.z += (f2.z * this.u + r2.z * this.w) * dt;
 
-    // ---- Aufbaubewegung fuer die Darstellung -------------------------------
-    const maxTransfer = c.mass * G * 0.5;
-    this.rollAngle = -(this.dFzLat / maxTransfer) * 0.075;
-    this.pitchAngle = (this.dFzLong / maxTransfer) * 0.06;
+    // ---- Reifenkraefte fuer den naechsten Fahrwerksschritt merken ----------
+    this.tyreFx = Ffwd;
+    this.tyreFy = Fright;
+    this.tyreFyFront = fyFront;
+
+    // ---- Aufbaulage: kommt jetzt direkt aus dem Fahrwerk -------------------
+    this.rollAngle = this.suspension.roll;
+    this.pitchAngle = this.suspension.pitch;
   }
 
-  /**
-   * Vertikalbewegung des Aufbaus ueber gefedertem Fahrwerk.
-   *
-   * Der Aufbau haengt an einer gedaempften Feder ueber der Fahrbahn. Solange
-   * der Abstand innerhalb des Federwegs liegt, haben die Reifen Kontakt - mit
-   * einer Radlast, die zum Ende des Federwegs hin auf null laeuft. Erst
-   * darueber hinaus fliegt das Auto wirklich.
-   *
-   * Ein harter Ja/Nein-Kontakt mit Aufprallruecksprung reicht dafuer nicht:
-   * auf laengerem Gefaelle prallt das Auto dann bei jeder Landung erneut ab
-   * und haengt dauerhaft ohne Grip in der Luft.
-   */
-  _integrateVertical(dt, groundHeight) {
-    const travel = this.c.suspensionTravel;
-    const gap = this.position.y - groundHeight;
-
-    if (gap < travel) {
-      // Feder und Daempfer ziehen den Aufbau auf die Fahrbahn
-      const k = this.c.suspensionRate;
-      const damping = 2 * Math.sqrt(k) * this.c.suspensionDamping;
-      this.verticalSpeed += (-k * gap - damping * this.verticalSpeed) * dt;
-      this.airborne = 0;
-    } else {
-      this.verticalSpeed -= G * dt;
-      this.airborne += dt;
-    }
-
-    this.position.y += this.verticalSpeed * dt;
-
-    // Durchschlag: der Aufbau darf nicht beliebig tief einfedern
-    const bump = groundHeight - this.c.suspensionBump;
-    if (this.position.y < bump) {
-      this.position.y = bump;
-      this.verticalSpeed = Math.max(0, this.verticalSpeed);
-    }
-
-    // Radlastanteil: voll bei aufliegendem Fahrwerk, null am Ende des Federwegs
-    const newGap = this.position.y - groundHeight;
-    this.contact = Math.max(0, Math.min(1, 1 - newGap / travel));
-    this.onGround = this.contact > 0.02;
-  }
-
-  _applySteering() {
+    _applySteering() {
     const c = this.c;
     const delta = this.steerAngle;
     if (Math.abs(delta) < 1e-5) {
@@ -646,9 +679,21 @@ export class Vehicle {
       maxSlip = Math.max(maxSlip, wheel.slipLoad);
       if (wheel.surfaceGrip < 0.75) wheelsOffTrack++;
     }
+    const tyreTemps = this.wheels.map((w) => w.tyre.temperature);
+    const tyreWear = this.wheels.map((w) => w.tyre.wear);
     return {
       speedKmh: this.speedKmh,
       rpm: this.drivetrain.rpm,
+      tyreTemps,
+      tyreWear,
+      tyreGrip: this.wheels.map((w) => w.tyre.gripTemp * w.tyre.gripWear),
+      wheelLoads: this.wheels.map((w) => w.load),
+      steeringTorque: this.steeringTorque,
+      fuel: this.fuel,
+      fuelCapacity: this.fuelCapacity,
+      fuelRate: this.drivetrain.fuelRate,
+      steeringAngle: this.steerAngle,
+      steeringWheelAngle: this.steeringWheelAngle,
       gear: this.drivetrain.gearLabel,
       gearIndex: this.drivetrain.gearIndex,
       throttle: this.throttleApplied,

@@ -7,6 +7,8 @@
 import { TOUCH_LAYOUTS, TOUCH_LABELS } from './touchControls.js';
 import { CAMERA_MODES, CAMERA_LABELS } from '../render/cameras.js';
 import { formatTime } from '../track/timing.js';
+import { ASSIST_PRESETS } from '../physics/vehicle.js';
+import { SETUP_FIELDS, DEFAULT_SETUP, SETUP_PRESETS, describeSetup } from '../physics/setup.js';
 
 const STORAGE_KEY = 'simracing.settings.v1';
 
@@ -31,13 +33,11 @@ export const DEFAULT_SETTINGS = {
   tiltRange: 28,
   volume: 0.65,
   muted: false,
-  assists: {
-    abs: true,
-    tractionControl: true,
-    stabilityControl: false,
-    steerAssist: true,
-    autoGearbox: true,
-  },
+  // Vorgabe bildet ein echtes GT3 ab: ABS und Traktionskontrolle an,
+  // von Hand geschaltet, keine Lenkhilfe.
+  level: 'gt3',
+  assists: { ...ASSIST_PRESETS.gt3.assists },
+  setup: { ...DEFAULT_SETUP },
 };
 
 export function loadSettings() {
@@ -49,6 +49,7 @@ export function loadSettings() {
       ...structuredClone(DEFAULT_SETTINGS),
       ...parsed,
       assists: { ...DEFAULT_SETTINGS.assists, ...(parsed.assists || {}) },
+      setup: { ...DEFAULT_SETUP, ...(parsed.setup || {}) },
     };
   } catch {
     return structuredClone(DEFAULT_SETTINGS);
@@ -198,15 +199,42 @@ export class Menu {
     this.wheelBtn = el('button', 'menu-btn menu-btn-small', this.wheelRow, 'Lenkrad kalibrieren');
     this.wheelBtn.addEventListener('click', () => this.h.onCalibrateWheel && this.h.onCalibrateWheel());
 
-    // --- Fahrhilfen -------------------------------------------------------
-    const aid = this._section('Fahrhilfen');
+    // --- Fahrstufe --------------------------------------------------------
+    const aid = this._section('Fahrstufe');
+    this.refreshLevel = this._chips(
+      aid,
+      Object.entries(ASSIST_PRESETS).map(([key, p]) => ({ label: p.name, value: key })),
+      () => s.level,
+      (v) => {
+        s.level = v;
+        Object.assign(s.assists, ASSIST_PRESETS[v].assists);
+        for (const fn of this.refreshAssists || []) fn();
+      }
+    );
+    this.levelHint = el('div', 'menu-hint', aid, ASSIST_PRESETS[s.level]?.hint || '');
+
+    const markCustom = () => {
+      s.level = 'eigene';
+      this.levelHint.textContent = 'Eigene Zusammenstellung';
+      this.refreshLevel();
+    };
     this.refreshAssists = [
-      this._toggle(aid, 'ABS', () => s.assists.abs, (v) => (s.assists.abs = v), 'Verhindert blockierende Raeder'),
-      this._toggle(aid, 'Traktionskontrolle', () => s.assists.tractionControl, (v) => (s.assists.tractionControl = v), 'Begrenzt durchdrehende Hinterraeder'),
-      this._toggle(aid, 'Stabilitaetsprogramm', () => s.assists.stabilityControl, (v) => (s.assists.stabilityControl = v), 'Faengt Ausbrechen ab'),
-      this._toggle(aid, 'Lenkhilfe', () => s.assists.steerAssist, (v) => (s.assists.steerAssist = v), 'Begrenzt den Einschlag bei hohem Tempo'),
-      this._toggle(aid, 'Automatikgetriebe', () => s.assists.autoGearbox, (v) => (s.assists.autoGearbox = v), 'Aus: mit Q/E oder den Wippen schalten'),
+      this._toggle(aid, 'ABS', () => s.assists.abs, (v) => { s.assists.abs = v; markCustom(); },
+        'Verhindert blockierende Raeder. Echte GT3-Autos haben es'),
+      this._toggle(aid, 'Traktionskontrolle', () => s.assists.tractionControl, (v) => { s.assists.tractionControl = v; markCustom(); },
+        'Begrenzt durchdrehende Hinterraeder. Echte GT3-Autos haben sie'),
+      this._toggle(aid, 'Stabilitaetsprogramm', () => s.assists.stabilityControl, (v) => { s.assists.stabilityControl = v; markCustom(); },
+        'Faengt Ausbrechen ab. Im Rennsport nicht zugelassen'),
+      this._toggle(aid, 'Lenkhilfe', () => s.assists.steerAssist, (v) => { s.assists.steerAssist = v; markCustom(); },
+        'Nur fuer Tastatur und Touch: kleinerer Lenkbereich bei hohem Tempo'),
+      this._toggle(aid, 'Automatikgetriebe', () => s.assists.autoGearbox, (v) => { s.assists.autoGearbox = v; markCustom(); },
+        'Aus: mit Q/E, den Wippen oder den Knoepfen schalten'),
     ];
+    this._toggle(aid, 'Reifen vorgewaermt', () => s.setup.tyrePreheat, (v) => { s.setup.tyrePreheat = v; },
+      'Aus: Start auf kalten Reifen, die erste Runde ist dann eine Aufwaermrunde');
+
+    // --- Abstimmung -------------------------------------------------------
+    this._buildSetupSection();
 
     // --- Auto -------------------------------------------------------------
     const car = this._section('Auto');
@@ -299,8 +327,87 @@ export class Menu {
     this.resultsSection.style.display = 'none';
   }
 
+  /**
+   * Abstimmung: Schieberegler aus dem Schema in src/physics/setup.js.
+   * Dadurch taucht jede neue Einstellgroesse automatisch hier auf.
+   */
+  _buildSetupSection() {
+    const s = this.settings;
+    const body = this._section('Abstimmung');
+
+    this.refreshSetupPreset = this._chips(
+      body,
+      Object.entries(SETUP_PRESETS).map(([key, p]) => ({ label: p.name, value: key })),
+      () => s.setupPreset || 'ausgewogen',
+      (v) => {
+        s.setupPreset = v;
+        Object.assign(s.setup, DEFAULT_SETUP, SETUP_PRESETS[v].values);
+        for (const fn of this.refreshSetupFields) fn();
+        this._updateSetupSummary();
+      }
+    );
+
+    this.setupSummary = el('div', 'menu-setup-summary', body);
+
+    this.refreshSetupFields = [];
+    let currentGroup = null;
+    let groupBody = body;
+    for (const field of SETUP_FIELDS) {
+      if (field.group !== currentGroup) {
+        currentGroup = field.group;
+        groupBody = el('div', 'menu-setup-group', body);
+        el('div', 'menu-setup-group-title', groupBody, currentGroup);
+      }
+      this.refreshSetupFields.push(this._setupSlider(groupBody, field));
+    }
+    this._updateSetupSummary();
+  }
+
+  _setupSlider(parent, field) {
+    const s = this.settings;
+    const row = el('div', 'menu-setup-row', parent);
+    const head = el('div', 'menu-setup-head', row);
+    el('span', 'menu-setup-name', head, field.name);
+    const value = el('span', 'menu-setup-value', head, '');
+    const input = el('input', 'menu-slider', row);
+    input.type = 'range';
+    input.min = String(field.min);
+    input.max = String(field.max);
+    input.step = String(field.step);
+    el('div', 'menu-setup-hint', row, field.hint);
+
+    const show = () => {
+      const v = s.setup[field.key];
+      input.value = String(v);
+      value.textContent = `${v.toFixed(field.decimals || 0)} ${field.unit}`;
+    };
+    input.addEventListener('input', () => {
+      s.setup[field.key] = Number(input.value);
+      s.setupPreset = 'eigene';
+      this.refreshSetupPreset();
+      show();
+      this._updateSetupSummary();
+      this._change();
+    });
+    show();
+    return show;
+  }
+
+  _updateSetupSummary() {
+    const d = describeSetup(this.settings.setup);
+    this.setupSummary.innerHTML =
+      `<span>Balance <b>${d.balance}</b></span>` +
+      `<span>${(d.frontShare * 100).toFixed(0)}% Rollsteifigkeit vorne</span>` +
+      `<span>~${d.vmax.toFixed(0)} km/h</span>` +
+      `<span>${d.mass.toFixed(0)} kg</span>`;
+  }
+
   /** Aktuellen Geraetestatus in die Steuerungs-Sektion schreiben. */
   updateDeviceStatus(input) {
+    const preset = ASSIST_PRESETS[this.settings.level];
+    const hint = preset ? preset.hint : 'Eigene Zusammenstellung';
+    if (this.levelHint.textContent !== hint) this.levelHint.textContent = hint;
+
     const tilt = input.tilt;
     let text;
     if (!this.settings.tilt) text = 'Neigung ist aus';

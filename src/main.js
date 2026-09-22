@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 
 import { Vehicle } from './physics/vehicle.js';
-import { TYRE_COMPOUNDS } from './physics/tyre.js';
+import { setupToPhysics } from './physics/setup.js';
 import { Track } from './track/track.js';
 import { AUTODROM_NORDWIND } from './track/trackData.js';
 import { LapTimer, formatTime } from './track/timing.js';
@@ -72,16 +72,8 @@ class Game {
     });
     this.renderer.scene.add(this.carView.root);
 
-    this.vehicle = new Vehicle({
-      assists: this.settings.assists,
-      compound: TYRE_COMPOUNDS.slick,
-    });
     this._hint = -1;
-    this.vehicle.surfaceQuery = (x, z) => {
-      const q = this.track.sample(x, z, this._hint);
-      this._hint = q.index;
-      return q;
-    };
+    this._createVehicle();
 
     this.timer = new LapTimer(this.track);
     this.input = new InputManager({ tiltRange: this.settings.tiltRange });
@@ -138,8 +130,49 @@ class Game {
     document.getElementById('boot')?.remove();
   }
 
+  /**
+   * Baut das Fahrzeug aus der aktuellen Abstimmung.
+   *
+   * Federraten, Stabilisatoren, Fluegel, Uebersetzung und Tankinhalt greifen
+   * so tief in Fahrwerk und Antrieb ein, dass ein Neuaufbau sauberer ist als
+   * einzelne Setter. Abgestimmt wird ohnehin im Stand, wie in der Box.
+   */
+  _createVehicle() {
+    const physics = setupToPhysics(this.settings.setup);
+    this.vehiclePhysics = physics;
+    this.vehicle = new Vehicle({
+      assists: this.settings.assists,
+      chassis: physics.chassis,
+      suspension: physics.suspension,
+      drivetrain: physics.drivetrain,
+      compound: physics.compound,
+      fuel: physics.fuel,
+    });
+    this.vehicle.surfaceQuery = (x, z) => {
+      const q = this.track.sample(x, z, this._hint);
+      this._hint = q.index;
+      return q;
+    };
+    this._setupFingerprint = JSON.stringify(this.settings.setup);
+  }
+
+  /** Reifentemperatur beim Start: mit Heizdecken warm, sonst Umgebungsluft. */
+  get startTyreTemp() {
+    return this.settings.setup.tyrePreheat ? 80 : null;
+  }
+
   // ------------------------------------------------------------- Steuerung
   applySettings(s) {
+    // Abstimmung geaendert? Dann Fahrzeug neu aufbauen und zurueck an die Box
+    const fingerprint = JSON.stringify(s.setup);
+    if (fingerprint !== this._setupFingerprint) {
+      const old = this.vehicle;
+      this._createVehicle();
+      if (old) {
+        this.vehicle.placeAt(old.position.x, old.position.z, old.yaw, 0, old.position.y, this.startTyreTemp);
+        this.timer.restart();
+      }
+    }
     Object.assign(this.vehicle.assists, s.assists);
     this.vehicle.drivetrain.autoGearbox = s.assists.autoGearbox;
     this.carView.setColor(s.color);
@@ -193,7 +226,7 @@ class Game {
 
   resetToGrid() {
     const slot = this.track.gridSlot(0);
-    this.vehicle.placeAt(slot.x, slot.z, slot.yaw, 0, slot.y);
+    this.vehicle.placeAt(slot.x, slot.z, slot.yaw, 0, slot.y, this.startTyreTemp);
     this._hint = slot.index;
     this.timer.restart();
     for (let i = 0; i < 4; i++) this.skids.reset(i);
@@ -204,7 +237,14 @@ class Game {
     const q = this.track.sample(this.vehicle.position.x, this.vehicle.position.z, this._hint);
     const p = this.track.points[q.index];
     const speed = Math.min(this.vehicle.speed, 22);
-    this.vehicle.placeAt(p.x, p.z, p.heading, speed, p.elevation);
+    // Beim Zurueckstellen die Reifen so lassen, wie sie sind
+    const temps = this.vehicle.wheels.map((w) => w.tyre.temperature);
+    const wear = this.vehicle.wheels.map((w) => w.tyre.wear);
+    this.vehicle.placeAt(p.x, p.z, p.heading, speed, p.elevation, null);
+    this.vehicle.wheels.forEach((w, i) => {
+      w.tyre.temperature = temps[i];
+      w.tyre.wear = wear[i];
+    });
     this._hint = q.index;
     this.timer.invalidate();
     for (let i = 0; i < 4; i++) this.skids.reset(i);
@@ -383,18 +423,16 @@ class Game {
   _updateCarVisual(dt) {
     const v = this.vehicle;
     const view = this.carView;
+    const sus = v.suspension;
 
+    // Der Wagenkasten haengt am Fahrwerk: er folgt nicht mehr starr der
+    // Fahrbahn, sondern hat seine eigene Lage. Die Raeder bleiben dabei auf
+    // dem Boden, der Aufbau bewegt sich darueber.
     view.root.position.set(v.position.x, v.position.y, v.position.z);
-    // Das ganze Auto folgt der Fahrbahnneigung: erst waelzen, dann nicken,
-    // dann gieren. Ohne das steht es in ueberhoehten Kurven schief in der Luft.
-    view.root.rotation.order = 'YXZ';
-    // Mesh-+X ist die linke Fahrzeugseite, deshalb kippt ein nach rechts
-    // ansteigendes Quergefaelle das Modell um -terrainRoll.
-    view.root.rotation.set(-v.terrainPitch, v.yaw, -v.terrainRoll);
+    view.root.rotation.set(0, v.yaw, 0);
 
-    // Der Aufbau nickt und waelzt zusaetzlich gegenueber den Raedern
-    view.shell.rotation.set(v.pitchAngle, 0, -v.rollAngle);
-    view.shell.position.y = -Math.abs(v.rollAngle) * 0.12;
+    // Mesh-+X ist die linke Fahrzeugseite, deshalb die gespiegelten Winkel
+    view.shell.rotation.set(-sus.pitch, 0, -sus.roll);
 
     for (let i = 0; i < 4; i++) {
       const w = v.wheels[i];
@@ -402,15 +440,12 @@ class Game {
       if (!vis) continue;
       vis.pivot.rotation.y = -w.steer;
       vis.spin.rotation.x = w.spinAngle;
-      // Federweg andeuten: mehr Last -> Rad steht relativ hoeher im Radhaus
-      const nominal = w.tyre.nominalLoad;
-      const travel = Math.max(-0.05, Math.min(0.05, (w.load - nominal) / nominal * 0.045));
-      vis.pivot.position.y = vis.radius - travel;
+      // Rad steht auf der Fahrbahn, der Aufbau federt darueber
+      vis.pivot.position.y = sus.wheelOffset(i) + vis.radius;
     }
 
-    // Lenkrad im Cockpit
-    view.steeringWheel.rotation.z = -v.steerInput * 2.6;
-    view.interior.visible = this.cameraRig.mode !== 'cockpit' ? true : true;
+    // Lenkrad im Cockpit dreht sich um den echten Lenkradwinkel
+    view.steeringWheel.rotation.z = -v.steeringWheelAngle;
   }
 
   _updateEffects(dt) {

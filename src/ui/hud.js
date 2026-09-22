@@ -70,6 +70,32 @@ export class Hud {
     this.steerWrap = el('div', 'hud-steer', bars);
     this.steerDot = el('div', 'hud-steer-dot', this.steerWrap);
 
+    // --- Reifen -----------------------------------------------------------
+    // Temperatur und Restprofil je Rad. Im Simulator ist das keine Zierde:
+    // kalte und ueberhitzte Reifen kosten spuerbar Grip.
+    this.tyrePanel = el('div', 'hud-panel hud-tyres', this.root);
+    el('div', 'hud-panel-title', this.tyrePanel, 'REIFEN');
+    this.tyreGrid = el('div', 'hud-tyre-grid', this.tyrePanel);
+    this.tyreCells = [];
+    for (let i = 0; i < 4; i++) {
+      const cell = el('div', 'hud-tyre', this.tyreGrid);
+      const temp = el('div', 'hud-tyre-temp', cell, '--');
+      const wearBar = el('div', 'hud-tyre-wear', cell);
+      const wearFill = el('div', 'hud-tyre-wear-fill', wearBar);
+      this.tyreCells.push({ cell, temp, wearFill });
+    }
+
+    // --- Tank -------------------------------------------------------------
+    const fuelRow = el('div', 'hud-fuelrow', this.tyrePanel);
+    el('span', 'hud-force-label', fuelRow, 'TANK');
+    this.fuelText = el('span', 'hud-fuel-value', fuelRow, '--');
+
+    // --- Lenkkraft --------------------------------------------------------
+    const forceBar = el('div', 'hud-forcebar', this.tyrePanel);
+    el('span', 'hud-force-label', forceBar, 'LENKKRAFT');
+    const forceTrack = el('div', 'hud-force-track', forceBar);
+    this.forceFill = el('div', 'hud-force-fill', forceTrack);
+
     // --- Karte ------------------------------------------------------------
     this.mapCanvas = el('canvas', 'hud-map', this.root);
     this.mapCanvas.width = 240;
@@ -158,6 +184,35 @@ export class Hud {
       this._cache.flash = flash;
       this.revBar.classList.toggle('shift', flash);
     }
+
+    // Reifen: Temperatur einfaerben, Restprofil als Balken
+    for (let i = 0; i < 4; i++) {
+      const c = this.tyreCells[i];
+      const t = Math.round(tel.tyreTemps[i]);
+      if (this._cache['tt' + i] !== t) {
+        this._cache['tt' + i] = t;
+        c.temp.textContent = `${t}\u00b0`;
+        // blau = kalt, gruen = im Fenster, rot = zu heiss
+        const zone = t < 60 ? 'cold' : t < 105 ? 'good' : 'hot';
+        if (c.cell.dataset.zone !== zone) c.cell.dataset.zone = zone;
+      }
+      const wear = Math.round((1 - tel.tyreWear[i]) * 100);
+      if (this._cache['tw' + i] !== wear) {
+        this._cache['tw' + i] = wear;
+        c.wearFill.style.width = `${wear}%`;
+      }
+    }
+    // Tank: Restmenge und Reichweite in Runden waeren ohne Rundenzeit raten
+    const fuelKg = tel.fuel.toFixed(1);
+    if (this._cache.fuel !== fuelKg) {
+      this._cache.fuel = fuelKg;
+      this.fuelText.textContent = `${fuelKg} kg`;
+      this.fuelText.classList.toggle('low', tel.fuel < 5);
+    }
+
+    // Lenkkraft: Betrag des Rueckstellmoments am Lenkrad
+    const steerForce = Math.min(1, Math.abs(tel.steeringTorque) / 18);
+    this.forceFill.style.width = `${steerForce * 100}%`;
 
     // Lampen
     this.absLamp.classList.toggle('on', tel.abs);
