@@ -173,8 +173,10 @@ export class Track {
 
     const dirX = p.dirX + (ref.dirX - p.dirX) * blend;
     const dirZ = p.dirZ + (ref.dirZ - p.dirZ) * blend;
-    const nx = dirZ; // Normale nach rechts
-    const nz = -dirX;
+    // Normale zur RECHTEN Seite der Fahrtrichtung: rechts = vorwaerts x oben.
+    // Damit bedeutet lateral > 0 immer "rechts der Mittellinie".
+    const nx = -dirZ;
+    const nz = dirX;
     const lateral = dx * nx + dz * nz;
 
     const width = p.width + (ref.width - p.width) * blend;
@@ -242,8 +244,8 @@ export class Track {
     const back = row * spacing + 8;
     const idx = (this.startIndex - Math.round(back / this.step) + this.points.length * 2) % this.points.length;
     const p = this.points[idx];
-    const nx = p.dirZ;
-    const nz = -p.dirX;
+    const nx = -p.dirZ;
+    const nz = p.dirX;
     const offset = side * (p.width * 0.22);
     return {
       x: p.x + nx * offset,

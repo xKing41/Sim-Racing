@@ -74,7 +74,9 @@ export class CameraRig {
       // Blick leicht in die Kurve. Der Zielpunkt liegt nur knapp unter
       // Augenhoehe - liegt er zu tief, schaut man dauernd auf die Haube.
       const lead = 20;
-      const sideGlance = -this.lateralLag * 2.8;
+      // In die Kurve schauen: bei Querbeschleunigung nach rechts wandert
+      // der Blickpunkt nach rechts.
+      const sideGlance = this.lateralLag * 2.8;
       look.set(
         target.x + fwd.x * lead + right.x * sideGlance,
         target.y - 0.42 + this.pitchLag * 1.1,
@@ -90,9 +92,9 @@ export class CameraRig {
       );
       const lead = 22;
       look.set(
-        target.x + fwd.x * lead - right.x * this.lateralLag * 2.4,
+        target.x + fwd.x * lead + right.x * this.lateralLag * 2.4,
         target.y - 0.85,
-        target.z + fwd.z * lead - right.z * this.lateralLag * 2.4
+        target.z + fwd.z * lead + right.z * this.lateralLag * 2.4
       );
       fov = 66 + Math.min(14, speed * 0.2);
       smoothing = 1;

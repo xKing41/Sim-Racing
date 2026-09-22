@@ -9,8 +9,8 @@ import * as THREE from 'three';
 import { makeSignTexture, mulberry } from './textures.js';
 
 function offsetPoint(p, lateral) {
-  const nx = p.dirZ;
-  const nz = -p.dirX;
+  const nx = -p.dirZ;
+  const nz = p.dirX;
   return new THREE.Vector3(
     p.x + nx * lateral,
     p.elevation + p.banking * Math.max(-p.width / 2, Math.min(p.width / 2, lateral)),

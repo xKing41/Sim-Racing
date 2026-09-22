@@ -1,10 +1,14 @@
 /**
  * Fahrzeugdynamik mit vier einzeln gerechneten Raedern.
  *
- * Koordinaten (passend zu three.js):
- *   Welt: X/Z-Ebene, Y = oben
- *   Fahrzeug lokal: +Z = vorne, +X = rechts, +Y = oben
- *   Gierwinkel psi = rotation.y, Vorwaertsvektor = (sin psi, 0, cos psi)
+ * Koordinaten (passend zu three.js, rechtshaendig, Y oben):
+ *   vorwaerts = (sin psi, 0, cos psi)
+ *   rechts    = vorwaerts x oben = (-cos psi, 0, sin psi)
+ *
+ * Wichtig: Bei psi = 0 schaut das Auto nach +Z, und rechts liegt dann bei
+ * -X. Wer hier "rechts" mit +X gleichsetzt, baut sich eine spiegelverkehrte
+ * Welt - dann lenkt das Auto in die falsche Richtung. Weil die rechte Hand
+ * entgegen dem Gierwinkel liegt, gilt psi-Punkt = -r.
  *
  * Zustandsgroessen im Fahrzeugsystem:
  *   u = Laengsgeschwindigkeit (vorwaerts)
@@ -175,8 +179,9 @@ export class Vehicle {
     return { x: Math.sin(this.yaw), z: Math.cos(this.yaw) };
   }
 
+  /** Rechte Hand des Fahrzeugs: vorwaerts x oben. */
   rightVector() {
-    return { x: Math.cos(this.yaw), z: -Math.sin(this.yaw) };
+    return { x: -Math.cos(this.yaw), z: Math.sin(this.yaw) };
   }
 
   /** Setzt das Auto an eine Position und richtet es aus. */
@@ -472,7 +477,9 @@ export class Vehicle {
     }
 
     // ---- Position und Gierwinkel -------------------------------------------
-    this.yaw += this.r * dt;
+    // Gegenlaeufig: eine Drehung nach rechts verringert den Gierwinkel, weil
+    // die rechte Hand bei -X liegt (siehe Kopfkommentar).
+    this.yaw -= this.r * dt;
     if (this.yaw > Math.PI) this.yaw -= 2 * Math.PI;
     else if (this.yaw < -Math.PI) this.yaw += 2 * Math.PI;
 

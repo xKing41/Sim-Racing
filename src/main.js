@@ -220,8 +220,10 @@ class Game {
     if (over <= 0) return 0;
 
     const sign = Math.sign(q.lateral);
-    const nx = Math.cos(q.heading);
-    const nz = -Math.sin(q.heading);
+    // Normale zur rechten Seite der Strecke - gleiche Konvention wie
+    // track.sample(), sonst schiebt die Bande in die falsche Richtung.
+    const nx = -Math.cos(q.heading);
+    const nz = Math.sin(q.heading);
 
     // aus der Wand schieben
     v.position.x -= sign * nx * over;
@@ -386,10 +388,12 @@ class Game {
     // Das ganze Auto folgt der Fahrbahnneigung: erst waelzen, dann nicken,
     // dann gieren. Ohne das steht es in ueberhoehten Kurven schief in der Luft.
     view.root.rotation.order = 'YXZ';
-    view.root.rotation.set(-v.terrainPitch, v.yaw, v.terrainRoll);
+    // Mesh-+X ist die linke Fahrzeugseite, deshalb kippt ein nach rechts
+    // ansteigendes Quergefaelle das Modell um -terrainRoll.
+    view.root.rotation.set(-v.terrainPitch, v.yaw, -v.terrainRoll);
 
     // Der Aufbau nickt und waelzt zusaetzlich gegenueber den Raedern
-    view.shell.rotation.set(v.pitchAngle, 0, v.rollAngle);
+    view.shell.rotation.set(v.pitchAngle, 0, -v.rollAngle);
     view.shell.position.y = -Math.abs(v.rollAngle) * 0.12;
 
     for (let i = 0; i < 4; i++) {

@@ -17,8 +17,10 @@ import {
 
 const ROAD_LIFT = 0.012; // damit Linien nicht mit der Fahrbahn flimmern
 
+/** Normale zur rechten Seite - identisch zu track.js, sonst passen Netz
+ *  und Physik nicht zusammen und Curbs liegen auf der falschen Seite. */
 function normalAt(p) {
-  return { x: p.dirZ, z: -p.dirX };
+  return { x: -p.dirZ, z: p.dirX };
 }
 
 /** Punkt auf der Fahrbahn bei seitlichem Versatz. */
@@ -73,7 +75,7 @@ function buildRibbon(points, widthFn, uvScale, lift) {
       // Zwei Dreiecke zum vorherigen Querschnitt. Die Reihenfolge bestimmt,
       // wohin die Normale zeigt - falsch herum wird die Flaeche von oben
       // weggeschnitten und ist unsichtbar.
-      indices.push(base - 2, base, base - 1, base - 1, base, base + 1);
+      indices.push(base - 2, base - 1, base, base - 1, base + 1, base);
     } else {
       runStart = vertexCount;
     }
@@ -108,7 +110,7 @@ function buildRoad(track) {
     uvs.push(0, v, p.width / TEX_METERS, v);
     if (i > 0) {
       const b = i * 2;
-      indices.push(b - 2, b, b - 1, b - 1, b, b + 1);
+      indices.push(b - 2, b - 1, b, b - 1, b + 1, b);
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -237,7 +239,7 @@ function buildBarrier(track, side) {
     colors.push(stripe.r * 0.75, stripe.g * 0.75, stripe.b * 0.75, stripe.r, stripe.g, stripe.b);
     if (i > 0) {
       const b = i * 2;
-      indices.push(b - 2, b, b - 1, b - 1, b, b + 1);
+      indices.push(b - 2, b - 1, b, b - 1, b + 1, b);
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -334,7 +336,7 @@ export function buildTrackMesh(track, quality = 'high') {
       uvs.push(0, v, 1, v);
       if (k > 0) {
         const b = k * 2;
-        indices.push(b - 2, b, b - 1, b - 1, b, b + 1);
+        indices.push(b - 2, b - 1, b, b - 1, b + 1, b);
       }
     }
     const geo = new THREE.BufferGeometry();

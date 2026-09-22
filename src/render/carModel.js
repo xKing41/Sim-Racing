@@ -385,10 +385,10 @@ export function buildCar(opts = {}) {
 
     // Sitz
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.14, 0.50), darkMat);
-    seat.position.set(-0.30, 0.42, -0.12);
+    seat.position.set(0.30, 0.42, -0.12);
     interior.add(seat);
     const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.72, 0.12), darkMat);
-    back.position.set(-0.30, 0.74, -0.36);
+    back.position.set(0.30, 0.74, -0.36);
     back.rotation.x = -0.14;
     interior.add(back);
   }
@@ -416,17 +416,20 @@ export function buildCar(opts = {}) {
       grip.position.set(s * 0.14, 0.0, 0.01);
       steeringWheel.add(grip);
     }
-    steeringWheel.position.set(-0.30, 0.78, 0.72);
+    steeringWheel.position.set(0.30, 0.78, 0.72); // links im Auto = Mesh +X
     steeringWheel.rotation.x = -0.42;
   }
   shell.add(steeringWheel);
 
   // --- Raeder -------------------------------------------------------------
+  // Achtung: das Modell schaut nach lokal +Z. In einem rechtshaendigen System
+  // mit Y oben liegt die rechte Fahrzeugseite damit bei lokal -X. Die x-Werte
+  // hier sind also gegenueber der Physik gespiegelt.
   const wheelMeta = [
-    { name: 'FL', x: -0.84, z: 1.378, radius: 0.335, width: 0.30 },
-    { name: 'FR', x: 0.84, z: 1.378, radius: 0.335, width: 0.30 },
-    { name: 'RL', x: -0.82, z: -1.272, radius: 0.352, width: 0.34 },
-    { name: 'RR', x: 0.82, z: -1.272, radius: 0.352, width: 0.34 },
+    { name: 'FL', x: 0.84, z: 1.378, radius: 0.335, width: 0.30 },
+    { name: 'FR', x: -0.84, z: 1.378, radius: 0.335, width: 0.30 },
+    { name: 'RL', x: 0.82, z: -1.272, radius: 0.352, width: 0.34 },
+    { name: 'RR', x: -0.82, z: -1.272, radius: 0.352, width: 0.34 },
   ];
   const wheels = {};
   for (const meta of wheelMeta) {
