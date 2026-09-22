@@ -3,18 +3,42 @@
 Ein Sim-Racing-Spiel im Browser. Laeuft am PC und auf dem Handy, ohne
 Installation und ohne Download waehrend des Spiels.
 
-## Starten
+## Spielen
+
+Drei Wege, je nachdem wo:
+
+**Eine Datei, kein Server** - `sim-racing.html` herunterladen und
+doppelklicken. Darin steckt alles: Spiel, Stylesheet und three.js. Kein
+Server, keine Internetverbindung, nichts zu installieren. Die Datei laesst
+sich verschicken oder auf einen Stick kopieren.
+
+**Im Netz** - ueber GitHub Pages erreichbar unter einer normalen Adresse.
+Das ist der bequemste Weg fuer das Handy, und nur dort funktioniert die
+Neigungssteuerung zuverlaessig (die braucht eine per https ausgelieferte
+Seite). Einschalten in den Repository-Einstellungen unter *Settings >
+Pages*: als Quelle *Deploy from a branch* waehlen, den Branch mit dem
+Spielstand und den Ordner `/ (root)`.
+
+**Aus dem Quelltext** - fuer die Entwicklung:
 
 ```bash
 npm start
 ```
 
-Dann `http://localhost:8080` im Browser oeffnen. Vom Handy aus geht es im
-gleichen WLAN ueber die IP des Rechners, also z. B.
-`http://192.168.1.23:8080`.
+Dann `http://localhost:8080` oeffnen. Vom Handy aus im gleichen WLAN ueber
+die IP des Rechners, also z. B. `http://192.168.1.23:8080`.
 
-Ein Server ist noetig, weil das Spiel aus ES-Modulen besteht - die laedt kein
-Browser ueber `file://`.
+Dieser Weg braucht einen Server, weil das Spiel aus ES-Modulen besteht - die
+laedt kein Browser ueber `file://`. Die Einzeldatei umgeht das, indem der
+gesamte Code zu einem klassischen Skript gebuendelt und direkt in die Seite
+geschrieben wird; dann gibt es nichts mehr nachzuladen.
+
+Neu bauen nach Aenderungen am Quelltext:
+
+```bash
+npm install   # einmalig, holt esbuild
+npm run build # erzeugt sim-racing.html neu
+```
 
 ## Steuerung
 
@@ -91,6 +115,7 @@ geschwindigkeit 270 km/h, Bremsweg 100-0 rund 24 m, Querbeschleunigung
 ```bash
 npm test          # Autopilot faehrt drei Runden und prueft die Zeitnahme
 npm run strecke   # Streckenlayout pruefen und als PNG zeichnen
+npm run build     # alles in die Einzeldatei sim-racing.html buendeln
 ```
 
 Der Autopilot ist der Regressionstest: er faehrt die Strecke ohne Grafik ab
@@ -110,7 +135,9 @@ src/ui/               hud.js, touchControls.js, menu.js
 src/audio/            engineAudio.js (synthetisiert, keine Audiodateien)
 src/main.js           Spielschleife
 vendor/three/         three.js r186, mitgeliefert
-tools/                serve.mjs, autopilot.mjs, preview-track.mjs, png.mjs
+tools/                serve.mjs, autopilot.mjs, preview-track.mjs,
+                      png.mjs, build-single.mjs
+sim-racing.html       eigenstaendige Fassung, erzeugt mit npm run build
 ```
 
 Alle Texturen werden beim Start auf ein Canvas gezeichnet, der Motorklang
