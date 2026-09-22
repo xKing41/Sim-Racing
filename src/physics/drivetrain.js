@@ -310,6 +310,11 @@ export class Drivetrain {
     }
     if (this.gearIndex < 2) return;
 
+    // Beim Anfahren schleift die Kupplung, die Motordrehzahl sagt dann nichts
+    // ueber die Fahrgeschwindigkeit aus. Wer hier nach Drehzahl schaltet, legt
+    // bei 15 km/h den zweiten Gang ein und wuergt die Beschleunigung ab.
+    if (this.mode === 'slipping' && Math.abs(speed) < LAUNCH_SPEED) return;
+
     const upAt = this.s.redlineRpm * (0.82 + throttle * 0.12);
     const downAt = this.s.redlineRpm * 0.42;
 

@@ -50,6 +50,12 @@ export const GT3_CHASSIS = {
   pitchTau: 0.085, // s, Aufbau der Nickbewegung
 
   rollingResistance: 0.014,
+
+  // Fahrwerk (Vertikaldynamik des Aufbaus)
+  suspensionTravel: 0.13, // m, danach heben die Raeder ab
+  suspensionRate: 340, // 1/s^2, entspricht rund 2.9 Hz Aufbaueigenfrequenz
+  suspensionDamping: 0.92, // Anteil der kritischen Daempfung
+  suspensionBump: 0.07, // m, maximaler Einfederweg bis zum Anschlag
 };
 
 export const ASSIST_DEFAULTS = {
@@ -148,6 +154,7 @@ export class Vehicle {
 
     this.time = 0;
     this.onGround = true;
+    this.contact = 1;
     this.airborne = 0;
     this.verticalSpeed = 0;
 
@@ -188,6 +195,8 @@ export class Vehicle {
     this.rollAngle = 0;
     this.pitchAngle = 0;
     this.verticalSpeed = 0;
+    this.contact = 1;
+    this.onGround = true;
     this.drivetrain.reset();
     if (speed > 0.5) this.drivetrain.gearIndex = 3;
     for (const wheel of this.wheels) {
@@ -259,7 +268,7 @@ export class Vehicle {
 
     // ---- Vertikaldynamik / Spruenge ---------------------------------------
     this._integrateVertical(dt, groundHeight);
-    const contact = this.onGround ? 1 : 0;
+    const contact = this.contact;
 
     // ---- Aerodynamik -------------------------------------------------------
     const vSq = this.u * this.u;
@@ -425,8 +434,11 @@ export class Vehicle {
 
     // ---- Luftwiderstand, Hangabtrieb ---------------------------------------
     Ffwd -= drag;
+    // Hangabtrieb: bergauf bremst die Schwerkraft, bergab zieht sie mit.
     Ffwd -= c.mass * G * Math.sin(this.terrainPitch);
-    Fright += c.mass * G * Math.sin(this.terrainRoll);
+    // Quergefaelle: die Schwerkraft zieht immer zur tiefer liegenden Seite.
+    // terrainRoll > 0 heisst "rechts hoeher", also zieht es nach links.
+    Fright -= c.mass * G * Math.sin(this.terrainRoll);
 
     // ---- Fahrdynamikregelung ------------------------------------------------
     if (this.assists.stabilityControl) Mz = this._applyStabilityControl(Mz, dt);
@@ -468,36 +480,46 @@ export class Vehicle {
     this.pitchAngle = (this.dFzLong / maxTransfer) * 0.06;
   }
 
+  /**
+   * Vertikalbewegung des Aufbaus ueber gefedertem Fahrwerk.
+   *
+   * Der Aufbau haengt an einer gedaempften Feder ueber der Fahrbahn. Solange
+   * der Abstand innerhalb des Federwegs liegt, haben die Reifen Kontakt - mit
+   * einer Radlast, die zum Ende des Federwegs hin auf null laeuft. Erst
+   * darueber hinaus fliegt das Auto wirklich.
+   *
+   * Ein harter Ja/Nein-Kontakt mit Aufprallruecksprung reicht dafuer nicht:
+   * auf laengerem Gefaelle prallt das Auto dann bei jeder Landung erneut ab
+   * und haengt dauerhaft ohne Grip in der Luft.
+   */
   _integrateVertical(dt, groundHeight) {
-    const targetY = groundHeight;
-    if (this.position.y <= targetY + 0.005 && this.verticalSpeed <= 0) {
-      this.position.y = targetY;
-      this.verticalSpeed = 0;
-      this.onGround = true;
+    const travel = this.c.suspensionTravel;
+    const gap = this.position.y - groundHeight;
+
+    if (gap < travel) {
+      // Feder und Daempfer ziehen den Aufbau auf die Fahrbahn
+      const k = this.c.suspensionRate;
+      const damping = 2 * Math.sqrt(k) * this.c.suspensionDamping;
+      this.verticalSpeed += (-k * gap - damping * this.verticalSpeed) * dt;
       this.airborne = 0;
     } else {
       this.verticalSpeed -= G * dt;
-      this.position.y += this.verticalSpeed * dt;
-      if (this.position.y <= targetY) {
-        this.position.y = targetY;
-        // Landung: etwas Energie schlucken
-        this.verticalSpeed = Math.max(0, this.verticalSpeed * -0.15);
-        this.onGround = true;
-        this.airborne = 0;
-      } else {
-        this.onGround = false;
-        this.airborne += dt;
-      }
+      this.airborne += dt;
     }
-    // Kuppen: wenn es bergab steiler wird als das Auto folgen kann, hebt es ab
-    if (this.onGround) {
-      const dropRate = (this._lastGround !== undefined ? groundHeight - this._lastGround : 0) / dt;
-      if (dropRate < -6 && this.speed > 22) {
-        this.verticalSpeed = Math.max(0, dropRate + 6) + 0.6;
-        this.onGround = false;
-      }
+
+    this.position.y += this.verticalSpeed * dt;
+
+    // Durchschlag: der Aufbau darf nicht beliebig tief einfedern
+    const bump = groundHeight - this.c.suspensionBump;
+    if (this.position.y < bump) {
+      this.position.y = bump;
+      this.verticalSpeed = Math.max(0, this.verticalSpeed);
     }
-    this._lastGround = groundHeight;
+
+    // Radlastanteil: voll bei aufliegendem Fahrwerk, null am Ende des Federwegs
+    const newGap = this.position.y - groundHeight;
+    this.contact = Math.max(0, Math.min(1, 1 - newGap / travel));
+    this.onGround = this.contact > 0.02;
   }
 
   _applySteering() {
