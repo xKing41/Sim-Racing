@@ -120,7 +120,7 @@ export class Vehicle {
     ];
 
     this.drivetrain = new Drivetrain(
-      { ...GT3_SETUP, ...(options.drivetrain || {}) },
+      { ...GT3_SETUP, wheelRadius: c.wheelRadiusRear, ...(options.drivetrain || {}) },
       options.torqueCurve || GT3_TORQUE_CURVE
     );
     this.drivetrain.autoGearbox = this.assists.autoGearbox;
@@ -306,8 +306,15 @@ export class Vehicle {
     // ---- Lenkwinkel je Rad (Ackermann) ------------------------------------
     this._applySteering();
 
+    // ---- Rueckwaertsgang ---------------------------------------------------
+    if (this.assists.autoGearbox) this._autoReverse(dt, input);
+    const reversing = this.drivetrain.gearIndex === 0;
+
     // ---- Antrieb -----------------------------------------------------------
-    const throttleRaw = Math.max(0, Math.min(1, input.throttle));
+    // Im Rueckwaertsgang sind die Pedale vertauscht: die Bremse gibt Gas
+    // nach hinten, das Gaspedal bremst. So kommt man mit derselben Belegung
+    // wieder aus einer Bande heraus.
+    const throttleRaw = Math.max(0, Math.min(1, reversing ? input.brake : input.throttle));
     const throttle = this._applyTractionControl(throttleRaw, dt);
     this.throttleApplied = throttle;
 
@@ -324,7 +331,7 @@ export class Vehicle {
     );
 
     // ---- Bremsen -----------------------------------------------------------
-    const brake = Math.max(0, Math.min(1, input.brake));
+    const brake = Math.max(0, Math.min(1, reversing ? input.throttle : input.brake));
     this.brakeApplied = brake;
     const handbrake = Math.max(0, Math.min(1, input.handbrake || 0));
 
@@ -545,6 +552,31 @@ export class Vehicle {
     } else {
       this.wheels[0].steer = innerMix * sign;
       this.wheels[1].steer = outerMix * sign;
+    }
+  }
+
+  /**
+   * Rueckwaertsgang bei Automatik: im Stand die Bremse halten legt ihn ein,
+   * im Stand Gas geben nimmt ihn wieder heraus. Ohne das kann man sich an
+   * einer Bande endgueltig festfahren.
+   */
+  _autoReverse(dt, input) {
+    const stopped = Math.abs(this.u) < 0.9;
+    if (this.drivetrain.gearIndex === 0) {
+      if (stopped && input.throttle > 0.4) {
+        this.drivetrain.gearIndex = 2;
+        this._reverseHold = 0;
+      }
+      return;
+    }
+    if (stopped && input.brake > 0.4 && input.throttle < 0.05) {
+      this._reverseHold = (this._reverseHold || 0) + dt;
+      if (this._reverseHold > 0.5) {
+        this.drivetrain.gearIndex = 0;
+        this._reverseHold = 0;
+      }
+    } else {
+      this._reverseHold = 0;
     }
   }
 

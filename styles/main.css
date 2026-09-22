@@ -266,8 +266,10 @@ html, body {
 
 .touch-side {
   position: absolute; right: 16px; bottom: 146px;
-  display: flex; gap: 8px;
+  display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
+  max-width: 206px;
 }
+.touch-mini-reset { background: rgba(255,176,32,0.18); border-color: rgba(255,176,32,0.42); }
 .touch-mini {
   width: 54px; height: 44px; display: grid; place-items: center;
   border-radius: 12px; font-weight: 700; font-size: 13px;

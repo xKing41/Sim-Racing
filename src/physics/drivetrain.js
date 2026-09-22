@@ -39,8 +39,10 @@ export const GT3_SETUP = {
   // Sequenzielles 6-Gang
   gears: [-3.15, 0, 3.02, 2.15, 1.71, 1.42, 1.21, 1.04],
   finalDrive: 3.55,
+  wheelRadius: 0.352, // m, fuer die Schaltlogik der Automatik
   efficiency: 0.92,
   shiftTime: 0.09, // s Zugkraftunterbrechung
+  reverseLimit: 9, // m/s, Abregelung im Rueckwaertsgang (~32 km/h)
 
   clutchMaxTorque: 780, // Nm
   launchTargetSlip: 0.13, // Zielschlupf beim Anfahren
@@ -203,6 +205,11 @@ export class Drivetrain {
     }
     if (this.shiftTimer > 0) thr *= 0.1; // Zugkraftunterbrechung beim Schalten
 
+    // Rueckwaerts wird abgeriegelt - niemand faehrt 100 km/h im Rueckwaertsgang
+    if (this.gearIndex === 0 && Math.abs(speed) > s.reverseLimit) {
+      thr *= Math.max(0, 1 - (Math.abs(speed) - s.reverseLimit) / 3);
+    }
+
     // --- Motor ------------------------------------------------------------
     // Leerlaufregler: stellt wie ein Leerlaufstellglied zusaetzliches Moment
     // bereit, wenn die Drehzahl unter den Sollleerlauf faellt.
@@ -299,6 +306,8 @@ export class Drivetrain {
   _autoShift(throttle, speed, now) {
     if (this.shiftTimer > 0) return;
     if (now - this.lastShiftAt < 0.45) return;
+    // Der Rueckwaertsgang wird vom Fahrzeug verwaltet, nicht hier.
+    if (this.gearIndex === 0) return;
 
     const rpm = this.rpm;
     const forward = speed > -0.5;
@@ -310,17 +319,35 @@ export class Drivetrain {
     }
     if (this.gearIndex < 2) return;
 
-    // Beim Anfahren schleift die Kupplung, die Motordrehzahl sagt dann nichts
-    // ueber die Fahrgeschwindigkeit aus. Wer hier nach Drehzahl schaltet, legt
-    // bei 15 km/h den zweiten Gang ein und wuergt die Beschleunigung ab.
-    if (this.mode === 'slipping' && Math.abs(speed) < LAUNCH_SPEED) return;
+    // Steht das Auto praktisch, gehoert der erste Gang hinein - sonst bleibt
+    // es nach einem Dreher im hohen Gang haengen und kommt nicht mehr weg.
+    if (Math.abs(speed) < 2 && this.gearIndex > 2) {
+      this.gearIndex = 2;
+      this.lastShiftAt = now;
+      return;
+    }
 
     const upAt = this.s.redlineRpm * (0.82 + throttle * 0.12);
     const downAt = this.s.redlineRpm * 0.42;
 
-    if (rpm > upAt && this.gearIndex < this.s.gears.length - 1) {
+    // Geschaltet wird nach der Drehzahl, die zur FAHRGESCHWINDIGKEIT passt,
+    // nicht nach der tatsaechlichen Motordrehzahl. Auf Gras oder beim
+    // Anfahren drehen die Raeder durch, und das Getriebe wuerde sonst
+    // zwischen zwei Gaengen pendeln.
+    const ratio = Math.abs(this.gearRatio * this.s.finalDrive);
+    const syncRpm =
+      ratio > 0 ? (Math.abs(speed) / this.s.wheelRadius) * ratio * RADS_TO_RPM : rpm;
+    const shiftRpm = Math.abs(speed) > 3 ? syncRpm : rpm;
+
+    // Beim Anfahren schleift die Kupplung, die Motordrehzahl sagt dann nichts
+    // ueber die Fahrgeschwindigkeit aus. Wer hier nach Drehzahl HOCHschaltet,
+    // legt bei 15 km/h den zweiten Gang ein und wuergt die Beschleunigung ab.
+    // Runterschalten muss aber jederzeit moeglich bleiben.
+    const blockUpshift = this.mode === 'slipping' && Math.abs(speed) < LAUNCH_SPEED;
+
+    if (shiftRpm > upAt && !blockUpshift && this.gearIndex < this.s.gears.length - 1) {
       this.shiftUp(now);
-    } else if (rpm < downAt && this.gearIndex > 2) {
+    } else if (shiftRpm < downAt && this.gearIndex > 2) {
       this.shiftDown(now);
     }
   }

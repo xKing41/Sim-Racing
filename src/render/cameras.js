@@ -65,21 +65,22 @@ export class CameraRig {
     let smoothing = 1;
 
     if (this.mode === 'cockpit') {
-      const eye = { x: -0.30, y: 1.02, z: 0.28 };
+      const eye = { x: -0.30, y: 1.13, z: 0.42 };
       target.set(
         v.position.x + right.x * eye.x + fwd.x * eye.z,
         v.position.y + eye.y,
         v.position.z + right.z * eye.x + fwd.z * eye.z
       );
-      // Blick leicht in die Kurve
-      const lead = 14;
-      const sideGlance = -this.lateralLag * 2.4;
+      // Blick leicht in die Kurve. Der Zielpunkt liegt nur knapp unter
+      // Augenhoehe - liegt er zu tief, schaut man dauernd auf die Haube.
+      const lead = 20;
+      const sideGlance = -this.lateralLag * 2.8;
       look.set(
         target.x + fwd.x * lead + right.x * sideGlance,
-        target.y - 0.9 + this.pitchLag * 0.9,
+        target.y - 0.42 + this.pitchLag * 1.1,
         target.z + fwd.z * lead + right.z * sideGlance
       );
-      fov = 68 + Math.min(14, speed * 0.18);
+      fov = 66 + Math.min(14, speed * 0.18);
       smoothing = 1; // starr mit dem Auto verbunden
     } else if (this.mode === 'haube') {
       target.set(
@@ -87,11 +88,11 @@ export class CameraRig {
         v.position.y + 1.32,
         v.position.z + fwd.z * 0.5
       );
-      const lead = 16;
+      const lead = 22;
       look.set(
-        target.x + fwd.x * lead - right.x * this.lateralLag * 2.0,
-        target.y - 1.0,
-        target.z + fwd.z * lead - right.z * this.lateralLag * 2.0
+        target.x + fwd.x * lead - right.x * this.lateralLag * 2.4,
+        target.y - 0.85,
+        target.z + fwd.z * lead - right.z * this.lateralLag * 2.4
       );
       fov = 66 + Math.min(14, speed * 0.2);
       smoothing = 1;

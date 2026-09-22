@@ -359,8 +359,8 @@ export function buildCar(opts = {}) {
   // --- Innenraum ----------------------------------------------------------
   const interior = new THREE.Group();
   {
-    const dash = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.22, 0.42), darkMat);
-    dash.position.set(0, 0.80, 0.82);
+    const dash = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 0.38), darkMat);
+    dash.position.set(0, 0.76, 0.80);
     dash.rotation.x = -0.18;
     interior.add(dash);
 
@@ -416,7 +416,7 @@ export function buildCar(opts = {}) {
       grip.position.set(s * 0.14, 0.0, 0.01);
       steeringWheel.add(grip);
     }
-    steeringWheel.position.set(-0.30, 0.74, 0.62);
+    steeringWheel.position.set(-0.30, 0.78, 0.72);
     steeringWheel.rotation.x = -0.42;
   }
   shell.add(steeringWheel);

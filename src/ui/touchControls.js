@@ -56,6 +56,8 @@ export class TouchControls {
 
     // --- Nebenfunktionen --------------------------------------------------
     this.sideBar = el('div', 'touch-side', this.root);
+    this.btnReset = el('div', 'touch-mini touch-mini-reset', this.sideBar, '↺');
+    this.btnCamera = el('div', 'touch-mini', this.sideBar, '▣');
     this.btnHandbrake = el('div', 'touch-mini', this.sideBar, 'HB');
     this.btnShiftDown = el('div', 'touch-mini', this.sideBar, '−');
     this.btnShiftUp = el('div', 'touch-mini', this.sideBar, '+');
@@ -65,6 +67,8 @@ export class TouchControls {
     this._bindHold(this.btnThrottle, (on, p) => input.setTouchAxis('throttle', on ? this._pressure(p, this.btnThrottle) : 0));
     this._bindHold(this.btnBrake, (on, p) => input.setTouchAxis('brake', on ? this._pressure(p, this.btnBrake) : 0));
     this._bindHold(this.btnHandbrake, (on) => input.setTouchAxis('handbrake', on ? 1 : 0));
+    this._bindTap(this.btnReset, () => { input.events.reset++; });
+    this._bindTap(this.btnCamera, () => { input.events.camera++; });
     this._bindTap(this.btnShiftUp, () => { input.state.shiftUp++; });
     this._bindTap(this.btnShiftDown, () => { input.state.shiftDown++; });
     this._bindSlider();

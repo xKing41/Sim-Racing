@@ -1,0 +1,13 @@
+{
+  "name": "sim-racing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sim-Racing-Browserspiel mit echter Fahrphysik",
+  "type": "module",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "test": "node tools/autopilot.mjs",
+    "strecke": "node tools/preview-track.mjs"
+  },
+  "engines": { "node": ">=18" }
+}
